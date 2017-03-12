@@ -15,8 +15,8 @@ somewhere in a hierarchy of data structures."
   (get-coll- [_]))
 
 (defn hyper-assoc-in
-  "assoc-in that works with hyper collections by recursively descending path
-  until value is a assigned to the bottom."
+  "safe assoc-in that works with hyper collections by recursively descending
+  path until value is a assigned to the bottom. path must not include links."
   [hyper-coll path value]
   (if (empty? path)
     value
@@ -29,13 +29,13 @@ somewhere in a hierarchy of data structures."
   "Get the value associated with k from hyper-coll and traversing any links
   found to an appropriate value within the root context."
   [hyper-coll root path coll k d]
-  (traverse-                              ; call follow links via traverse-
+  (traverse-                              ; follow links via traverse-
     (get coll k d)                        ; get the raw value associated with k
     (hyper-assoc-in root path hyper-coll) ; update root with current hyper-coll
     (conj path k)))                       ; append k to the end of path
 
 (deltype/deftype HyperMap [root path coll]
-  :debug true
+  :debug false
   :delegate [coll n01se.deltype.IEditableMap]
   
   n01se.deltype.IEditableMap
@@ -57,7 +57,7 @@ somewhere in a hierarchy of data structures."
   (get-coll- [_] coll))
 
 (deltype/deftype HyperVector [root path coll]
-  :debug true
+  :debug false
   :delegate [coll n01se.deltype.IEditableVector]
   
   n01se.deltype.IEditableVector
@@ -80,11 +80,26 @@ somewhere in a hierarchy of data structures."
   (get-path- [_] path)
   (get-coll- [_] coll))
 
+(defn safe-get-in
+  "Get the value associated with path from hyper-coll with explicit protection
+  from circular links."
+  [hyper-coll path]
+  (let [visited (-> hyper-coll meta (get ::visited #{}))]
+    (when-not (contains? visited path)
+      (loop [c hyper-coll p (seq path)]
+        (if (or (nil? c) (empty? p))
+          c
+          (recur (get (vary-meta c assoc ::visited (conj visited path))
+                      (first p))
+                 (next p)))))))
+
 (defrecord Link [n link-path]
   HyperLink
   (traverse- [_ root path]
     (when (<= n (count path))
-      (get-in root (concat (drop-last n path) link-path)))))
+      (safe-get-in
+        root
+        (concat (drop-last n path) link-path)))))
 
 (extend-protocol HyperLink
   nil ; nil objects traverse to nil
@@ -99,9 +114,6 @@ somewhere in a hierarchy of data structures."
 (defn hypervector [x]
   (HyperVector. nil [] x))
 
-(defn hyperlist [x]
-  (HyperList. nil [] x))
-
 (defn link [n path]
   (Link. n path))
 
@@ -109,13 +121,19 @@ somewhere in a hierarchy of data structures."
     (.write w (str "(link " (:n link) " " (:link-path link) ")")))
 
 (def x
-  (hypermap {:a 1
+  (hypermap {:. (link 1 [])
+             :a 1
              :b (hypervector [2
                               3
                               (link 2 [:a])])
              :c (link 1 [:a])
              :d (link 1 [:c])
-             :e (link 1 [:b])
+             :e (link 1 [:. :. :b])
              :f (link 1 [:b 2])
-             :g (link 1 [:e 2])}))
+             :g (link 1 [:e 2])
+
+             ;; circular links...
+             :h (link 1 [:i])
+             :i (link 1 [:j])
+             :j (link 1 [:h])}))
 
