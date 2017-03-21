@@ -1,11 +1,15 @@
-(ns n01se.hyperstruct.core
-  (:require [n01se.deltype :as deltype]))
+(ns n01se.hyperstruct
+  (:require [n01se.deltype :as deltype])
+  (:refer-clojure :exclude [map vector set list]))
 
 "The goal of hyper data is to provide map/vector/list/set data structures that
 support 'hyperlinks' as references. A hyperlink is a (relative) path to a place
 somewhere in a hierarchy of data structures."
 
+(alias 'clj 'clojure.core)
+
 ;; Type Definitions 
+
 (defprotocol HyperLink
   (traverse- [_ root path]))
 
@@ -34,12 +38,78 @@ somewhere in a hierarchy of data structures."
     (hyper-assoc-in root path hyper-coll) ; update root with current hyper-coll
     (conj path k)))                       ; append k to the end of path
 
-(deltype/deftype HyperMap [root path coll]
-  :debug false
-  :delegate [coll n01se.deltype.IEditableMap]
-  
-  n01se.deltype.IEditableMap
+(deltype/deftype HyperList [root path coll i]
+  :delegate [coll n01se.deltype.IList]
 
+  n01se.deltype.IList
+  (seq [self] self)
+
+  (first [_]
+    (traverse- (first coll)
+               root
+               (conj path i)))
+  (next [_] (HyperList. root path (next coll) (inc i)))
+  (pop [_] (HyperList. root path (pop coll) (inc i)))
+
+  HyperLink
+
+  (traverse- [_ new-root new-path]
+    (HyperList. new-root new-path coll i))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+(deltype/deftype HyperMapCons [root path coll]
+  :delegate [coll clojure.lang.ISeq]
+
+  clojure.lang.ISeq
+  (seq [self] self)
+  (first [_] (traverse- (first coll) root path))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+
+(deltype/deftype HyperMapPair [root path coll]
+  :delegate [coll clojure.lang.ISeq]
+
+  clojure.lang.ISeq
+  (seq [self] self)
+  (first [_] (first coll))
+  (next [_] (HyperMapCons. root (conj path (first coll)) (next coll)))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+(deltype/deftype HyperMapSeq [root path coll]
+  :delegate [coll clojure.lang.ISeq]
+
+  clojure.lang.ISeq
+
+  (seq [self] self)
+  (first [_] (HyperMapPair. root path (first coll)))
+  (next [_] (HyperMapSeq. root path (next coll)))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+(deltype/deftype HyperMap [root path coll]
+  :delegate [coll n01se.deltype.IEditableMap]
+
+  n01se.deltype.IEditableMap
+  (seq [self] (HyperMapSeq. (hyper-assoc-in root path self) path (seq coll)))
   (invoke [self k]   (hyper-get self root path coll k nil))
   (invoke [self k d] (hyper-get self root path coll k d))
   (valAt  [self k]   (hyper-get self root path coll k nil))
@@ -56,11 +126,29 @@ somewhere in a hierarchy of data structures."
   (get-path- [_] path)
   (get-coll- [_] coll))
 
+(deltype/deftype HyperVectorSeq [root path coll i]
+  :delegate [coll clojure.lang.ISeq]
+
+  clojure.lang.ISeq
+  (seq [self] self)
+  (first [_] (traverse- (first coll) root (conj path i)))
+  (next [_] (HyperVectorSeq. root path (next coll) (inc i)))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+
 (deltype/deftype HyperVector [root path coll]
-  :debug false
   :delegate [coll n01se.deltype.IEditableVector]
-  
+
   n01se.deltype.IEditableVector
+  (seq [self] (HyperVectorSeq. (hyper-assoc-in root path self)
+                               path
+                               (seq coll)
+                               0))
 
   (invoke [self k]   (hyper-get self root path coll k nil))
   (invoke [self k d] (hyper-get self root path coll k d))
@@ -73,6 +161,40 @@ somewhere in a hierarchy of data structures."
 
   (traverse- [_ new-root new-path]
     (HyperVector. new-root new-path coll))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+(deltype/deftype HyperSetSeq [root path coll]
+  :delegate [coll clojure.lang.ISeq]
+
+  clojure.lang.ISeq
+  (seq [self] self)
+  (first [_] (traverse- (first coll) root (conj path (first coll))))
+  (next [_] (HyperSetSeq. root path (next coll)))
+
+  HyperColl
+
+  (get-root- [_] root)
+  (get-path- [_] path)
+  (get-coll- [_] coll))
+
+(deltype/deftype HyperSet [root path coll]
+  :delegate [coll n01se.deltype.ISet]
+
+  n01se.deltype.ISet
+  (seq [self] (HyperSetSeq. (hyper-assoc-in root path self) path (seq coll)))
+  (get [self k]   (hyper-get self root path coll k nil))
+  ;; Really... no get with defaults
+  #_(get [self k]   (hyper-get self root path coll k d))
+
+  HyperLink
+
+  (traverse- [_ new-root new-path]
+    (HyperSet. new-root new-path coll))
 
   HyperColl
 
@@ -107,33 +229,55 @@ somewhere in a hierarchy of data structures."
   Object ; non-hyper objects traverse to themselves
   (traverse- [obj root path] obj))
 
-;; API
-(defn hypermap [x]
-  (HyperMap. nil [] x))
+;; Printing
+(defmethod print-method HyperList [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperMapCons [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperMapPair [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperMapSeq [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperMap [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperVectorSeq [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperVector [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperSetSeq [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method HyperSet [h ^java.io.Writer w] (.write w (str (get-coll- h))))
+(defmethod print-method Link [link ^java.io.Writer w]
+    (.write w (str "(link " (:n link) " " (:link-path link) ")")))
 
-(defn hypervector [x]
-  (HyperVector. nil [] x))
+;; API
+(defn map [& x]
+  (HyperMap. nil [] (apply clj/hash-map x)))
+
+(defn vector [& x]
+  (HyperVector. nil [] (apply clj/vector x)))
+
+(defn list [& x]
+  (HyperList. nil [] (apply clj/list x) 0))
+
+(defn set [& x]
+  (HyperSet. nil [] (clj/set x)))
 
 (defn link [n path]
   (Link. n path))
 
-(defmethod print-method Link [link ^java.io.Writer w]
-    (.write w (str "(link " (:n link) " " (:link-path link) ")")))
-
 (def x
-  (hypermap {:. (link 1 [])
-             :a 1
-             :b (hypervector [2
-                              3
-                              (link 2 [:a])])
-             :c (link 1 [:a])
-             :d (link 1 [:c])
-             :e (link 1 [:. :. :b])
-             :f (link 1 [:b 2])
-             :g (link 1 [:e 2])
+  (map
+    :. (link 1 [])
+    :a 1
+    :b 2
 
-             ;; circular links...
-             :h (link 1 [:i])
-             :i (link 1 [:j])
-             :j (link 1 [:h])}))
+    ;; collections
+    :sub-vec (vector 2 3 (link 2 [:a]))
+    :sub-set (set 1 2 3 4) 
+    :sub-list (list 1 2 3 4 (link 2 []))
+
+    ;; various links
+    :c (link 1 [:a])
+    :d (link 1 [:c])
+    :e (link 1 [:. :. :sub-vec])
+    :f (link 1 [:sub-vec 2])
+    :g (link 1 [:e 2])
+
+    ;; circular links
+    :h (link 1 [:i])
+    :i (link 1 [:j])
+    :j (link 1 [:h])))
 
