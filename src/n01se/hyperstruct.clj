@@ -258,26 +258,4 @@ somewhere in a hierarchy of data structures."
 (defn link [n path]
   (Link. n path))
 
-(def x
-  (map
-    :. (link 1 [])
-    :a 1
-    :b 2
-
-    ;; collections
-    :sub-vec (vector 2 3 (link 2 [:a]))
-    :sub-set (set 1 2 3 4) 
-    :sub-list (list 1 2 3 4 (link 2 []))
-
-    ;; various links
-    :c (link 1 [:a])
-    :d (link 1 [:c])
-    :e (link 1 [:. :. :sub-vec])
-    :f (link 1 [:sub-vec 2])
-    :g (link 1 [:e 2])
-
-    ;; circular links
-    :h (link 1 [:i])
-    :i (link 1 [:j])
-    :j (link 1 [:h])))
 

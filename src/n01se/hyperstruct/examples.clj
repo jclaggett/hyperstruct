@@ -1,6 +1,75 @@
 (ns n01se.hyperstruct.examples
   (:require [n01se.hyperstruct :as h]
-            [clojure.pprint :as pp]))
+            [clojure.pprint :refer [pprint]]))
+
+(comment 1 "Context: representing complex data structures" 
+  (def list-struct [a b c d])
+  (def tree-struct [a [b c] d])
+  (def dag-struct [a [b "ref to 1st item"] d]) 
+  (def graph-struct [a [b "ref to 3rd item"] [c "ref to 2nd item"]]))
+
+; # mutable python examples
+; dag = [a [b] c]
+; dag[1].append(dag[0])
+;
+; graph = [a [b] [c]]
+; graph[1].append(graph[2])
+; graph[2].append(graph[1])
+
+(comment 2 "Introducing hyperlinks"
+  (def link-to-self (h/link 0 []))
+  (def link-to-parent (h/link 1 []))
+  (def link-to-sibling (h/link 1 [:sibling-name]))
+
+  (def list-struct [a b c d])
+  (def tree-struct [a [b c] d])
+  (def dag-struct [a [b (h/link 2 [0])] d]) 
+  (def graph-struct [a [b (h/link 2 [2] [c (h/link 2 [1])])]]))
+
+(comment 3 "Introducing hyperstructs"
+  (def ex3 (h/map :a 42
+                  :b (h/link 1 [:a])
+                  :c (h/map :sub-a 43
+                            :super-a (h/link 2 [:b]))
+                  :d (h/link 1 [:c :sub-a])))
+
+  (get ex3 :a)               ;=> 42
+  (get ex3 :b)               ;=> also 42
+  (get-in ex1 [:c :super-a]) ;=> also, also 42
+  (get ex3 :d)               ;=> 43
+  
+  (def family (h/map :bob (h/map :sister (h/link 2 [:sue])
+                                 :secret 42)
+                     :sue (h/map :brother (h/link 2 [:bob])
+                                 :secret nil)))
+  (defn wisper [family]
+    (assoc-in family [:bob :sister :secret]
+              (get-in family [:bob :secret]))))
+         
+;; Stress testing
+(def x
+  (h/map
+    :. (h/link 1 [])
+    :a 1
+    :b 2
+
+    ;; collections
+    :sub-vec (h/vector 2 3 (h/link 2 [:a]))
+    :sub-set (h/set 1 2 3 4) 
+    :sub-list (h/list 1 2 3 4 (h/link 2 []))
+
+    ;; various links
+    :c (h/link 1 [:a])
+    :d (h/link 1 [:c])
+    :e (h/link 1 [:. :. :sub-vec])
+    :f (h/link 1 [:sub-vec 2])
+    :g (h/link 1 [:e 2])
+
+    ;; circular links
+    :h (h/link 1 [:i])
+    :i (h/link 1 [:j])
+    :j (h/link 1 [:h])))
+    
 
 ;; Scottland yard board data copied from:
 ;; http://github.com/abrooks/scotlandyard
@@ -205,6 +274,7 @@
    198 {:taxi #{159 186 187 199}}
    199 {:taxi #{171 188 198} :bus #{128 161}}})
 
+;; Working with explicit references
 (defn find-shortest-paths [board origin goal]
   (loop [i 1
          visited #{}
